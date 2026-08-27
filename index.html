@@ -137,6 +137,7 @@
     </div>
 
     <div id="hintText"></div>
+    <div id="debugReadout" style="position:absolute; top:70px; left:16px; font-size:11px; color:rgba(255,255,255,0.6); background:rgba(0,0,0,0.4); padding:4px 8px; border-radius:6px; z-index:10; font-family:monospace;"></div>
 
     <div id="bottomBar">
       <button id="shutter"></button>
@@ -342,7 +343,10 @@
     const tbDiff = symmetryDiff('tb');
     const bestSymAxis = lrDiff <= tbDiff ? 'lr' : 'tb';
     const bestSymScore = Math.min(lrDiff, tbDiff);
-    const SYMMETRY_THRESHOLD = 18; // lower = stricter match; tune by testing
+    const SYMMETRY_THRESHOLD = 40; // lower = stricter match; tune by testing
+
+    const debugEl = document.getElementById('debugReadout');
+    if (debugEl) debugEl.textContent = `lr:${lrDiff.toFixed(1)} tb:${tbDiff.toFixed(1)} (threshold:${SYMMETRY_THRESHOLD})`;
 
     if (bestSymScore < SYMMETRY_THRESHOLD) {
       focalPoint = { x: 0.5, y: 0.5, symmetry: true, axis: bestSymAxis };
