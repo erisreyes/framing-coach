@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Framing Coach</title>
+<style>
+  :root {
+    --gold: #E8A93C;
+    --gold-dim: rgba(232, 169, 60, 0.55);
+    --green: #4CD97B;
+    --red: #FF5F56;
+    --ink: #0B0C0E;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    background: var(--ink); overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+    color: #fff;
+    position: fixed;
+  }
+  #app { position: fixed; inset: 0; }
+
+  /* ---- Start screen ---- */
+  #startScreen {
+    position: fixed; inset: 0; z-index: 50;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: radial-gradient(circle at 50% 30%, #16181c, var(--ink));
+    padding: 32px; text-align: center;
+  }
+  #startScreen h1 {
+    font-size: 26px; font-weight: 600; margin: 0 0 8px;
+    letter-spacing: 0.3px;
+  }
+  #startScreen p {
+    font-size: 15px; color: #9a9ea5; margin: 0 0 32px; line-height: 1.5; max-width: 320px;
+  }
+  #startBtn {
+    background: var(--gold); color: #1a1400; border: none;
+    padding: 16px 40px; border-radius: 999px; font-size: 16px; font-weight: 600;
+    letter-spacing: 0.2px;
+  }
+  #startScreen small { margin-top: 18px; color: #5c6067; font-size: 12px; }
+  #errorMsg {
+    color: var(--red); font-size: 13px; margin-top: 16px; max-width: 300px; display: none;
+  }
+
+  /* ---- Camera view ---- */
+  #camWrap { position: fixed; inset: 0; display: none; }
+  video { width: 100%; height: 100%; object-fit: cover; display: block; background: #000; }
+  canvas#overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+
+  /* ---- Top bar ---- */
+  #topBar {
+    position: absolute; top: 0; left: 0; right: 0;
+    display: flex; justify-content: space-between; align-items: center;
+    padding: calc(env(safe-area-inset-top, 12px) + 6px) 16px 10px;
+    background: linear-gradient(to bottom, rgba(0,0,0,0.55), transparent);
+    z-index: 10;
+  }
+  .pill {
+    background: rgba(255,255,255,0.12); backdrop-filter: blur(6px);
+    border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 999px; padding: 8px 14px; font-size: 12.5px; font-weight: 600;
+    color: #fff; display: flex; align-items: center; gap: 6px;
+  }
+  .pill.off { color: #8b8f96; }
+  .pill.active { background: var(--gold-dim); border-color: var(--gold); color: #1a1400; }
+
+  /* ---- Bottom bar ---- */
+  #bottomBar {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    display: flex; align-items: center; justify-content: center;
+    padding: 18px 24px calc(env(safe-area-inset-bottom, 16px) + 22px);
+    background: linear-gradient(to top, rgba(0,0,0,0.6), transparent);
+    z-index: 10;
+  }
+  #hintText {
+    position: absolute; bottom: calc(env(safe-area-inset-bottom, 16px) + 110px);
+    left: 0; right: 0; text-align: center; font-size: 13px; color: var(--gold);
+    font-weight: 600; letter-spacing: 0.2px; text-shadow: 0 1px 4px rgba(0,0,0,0.8);
+    z-index: 10; opacity: 0; transition: opacity 0.4s ease; pointer-events: none;
+  }
+  #hintText.show { opacity: 1; }
+
+  #shutter {
+    width: 74px; height: 74px; border-radius: 50%;
+    background: transparent; border: 4px solid #fff;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #shutter::after {
+    content: ''; width: 60px; height: 60px; border-radius: 50%; background: #fff;
+  }
+  #shutter:active::after { background: #ddd; width: 54px; height: 54px; }
+
+  /* ---- Preview / captured photo ---- */
+  #preview {
+    position: fixed; inset: 0; background: #000; z-index: 60; display: none;
+    flex-direction: column;
+  }
+  #preview img { flex: 1; width: 100%; object-fit: contain; }
+  #previewActions {
+    display: flex; gap: 14px; padding: 16px calc(env(safe-area-inset-bottom,0px) + 24px) calc(env(safe-area-inset-bottom, 16px) + 24px);
+    justify-content: center;
+  }
+  .actionBtn {
+    flex: 1; max-width: 200px; padding: 14px; border-radius: 14px; border: none;
+    font-size: 15px; font-weight: 600; text-align: center; text-decoration: none; color: #fff;
+  }
+  #retakeBtn { background: rgba(255,255,255,0.14); }
+  #saveBtn { background: var(--gold); color: #1a1400; }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div id="startScreen">
+    <h1>Framing Coach</h1>
+    <p>Real-time composition guides while you shoot — grid, horizon level, and focal-point hints based on what's in frame.</p>
+    <button id="startBtn">Start Camera</button>
+    <div id="errorMsg"></div>
+    <small>Camera & motion access needed. Works best outdoors.</small>
+  </div>
+
+  <div id="camWrap">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="overlay"></canvas>
+
+    <div id="topBar">
+      <div class="pill active" id="gridToggle">⊞ Grid</div>
+      <div class="pill active" id="levelToggle">⟷ Level</div>
+      <div class="pill active" id="hintToggle">✦ Hints</div>
+    </div>
+
+    <div id="hintText"></div>
+
+    <div id="bottomBar">
+      <button id="shutter"></button>
+    </div>
+  </div>
+
+  <div id="preview">
+    <img id="previewImg" src="" alt="Captured photo">
+    <div id="previewActions">
+      <button id="retakeBtn" class="actionBtn">Retake</button>
+      <a id="saveBtn" class="actionBtn" download="framing-coach-shot.jpg">Save Photo</a>
+    </div>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  const startScreen = document.getElementById('startScreen');
+  const startBtn = document.getElementById('startBtn');
+  const errorMsg = document.getElementById('errorMsg');
+  const camWrap = document.getElementById('camWrap');
+  const video = document.getElementById('video');
+  const overlay = document.getElementById('overlay');
+  const ctx = overlay.getContext('2d');
+  const shutter = document.getElementById('shutter');
+  const preview = document.getElementById('preview');
+  const previewImg = document.getElementById('previewImg');
+  const retakeBtn = document.getElementById('retakeBtn');
+  const saveBtn = document.getElementById('saveBtn');
+  const hintTextEl = document.getElementById('hintText');
+
+  const gridToggle = document.getElementById('gridToggle');
+  const levelToggle = document.getElementById('levelToggle');
+  const hintToggle = document.getElementById('hintToggle');
+
+  let showGrid = true, showLevel = true, showHints = true;
+  let tiltDeg = 0;
+  let focalPoint = null; // {x, y} in 0-1 normalized coords
+  let lastAnalysis = 0;
+
+  gridToggle.onclick = () => { showGrid = !showGrid; gridToggle.classList.toggle('active', showGrid); gridToggle.classList.toggle('off', !showGrid); };
+  levelToggle.onclick = () => { showLevel = !showLevel; levelToggle.classList.toggle('active', showLevel); levelToggle.classList.toggle('off', !showLevel); };
+  hintToggle.onclick = () => { showHints = !showHints; hintToggle.classList.toggle('active', showHints); hintToggle.classList.toggle('off', !showHints); hintTextEl.classList.remove('show'); };
+
+  function resizeCanvas() {
+    overlay.width = overlay.clientWidth * devicePixelRatio;
+    overlay.height = overlay.clientHeight * devicePixelRatio;
+  }
+  window.addEventListener('resize', resizeCanvas);
+
+  // ---- Start flow ----
+  startBtn.addEventListener('click', async () => {
+    startBtn.disabled = true;
+    errorMsg.style.display = 'none';
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+        audio: false
+      });
+      video.srcObject = stream;
+      await video.play();
+
+      // Request motion permission (iOS 13+ requires user gesture)
+      if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+        try {
+          const perm = await DeviceOrientationEvent.requestPermission();
+          if (perm === 'granted') window.addEventListener('deviceorientation', onOrientation);
+        } catch (e) { /* motion denied, continue without level */ }
+      } else {
+        window.addEventListener('deviceorientation', onOrientation);
+      }
+
+      startScreen.style.display = 'none';
+      camWrap.style.display = 'block';
+      resizeCanvas();
+      requestAnimationFrame(loop);
+      setInterval(analyzeFrame, 700);
+    } catch (err) {
+      errorMsg.textContent = 'Could not access camera: ' + err.message + '. Make sure this page is loaded over HTTPS and camera permission is allowed.';
+      errorMsg.style.display = 'block';
+      startBtn.disabled = false;
+    }
+  });
+
+  function onOrientation(e) {
+    // gamma: left-right tilt (-90 to 90), used as roll when holding phone upright
+    if (e.gamma !== null) tiltDeg = e.gamma;
+  }
+
+  // ---- Drawing loop ----
+  function loop() {
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  function draw() {
+    const w = overlay.width, h = overlay.height;
+    ctx.clearRect(0, 0, w, h);
+
+    if (showGrid) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+      ctx.lineWidth = 1;
+      for (let i = 1; i < 3; i++) {
+        ctx.beginPath(); ctx.moveTo(w * i / 3, 0); ctx.lineTo(w * i / 3, h); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, h * i / 3); ctx.lineTo(w, h * i / 3); ctx.stroke();
+      }
+    }
+
+    if (showLevel) {
+      const level = Math.abs(tiltDeg) < 1.5;
+      ctx.strokeStyle = level ? 'rgba(76,217,123,0.95)' : 'rgba(255,95,86,0.85)';
+      ctx.lineWidth = level ? 3 : 2;
+      const cx = w / 2, cy = h / 2;
+      const len = w * 0.32;
+      const rad = (tiltDeg * Math.PI) / 180;
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(rad);
+      ctx.beginPath();
+      ctx.moveTo(-len, 0); ctx.lineTo(len, 0);
+      ctx.stroke();
+      ctx.restore();
+      // static reference line
+      ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(cx - len, cy); ctx.lineTo(cx + len, cy); ctx.stroke();
+    }
+
+    if (showHints && focalPoint) {
+      const px = focalPoint.x * w, py = focalPoint.y * h;
+      const t = (Date.now() % 1400) / 1400;
+      const pulse = 1 + 0.15 * Math.sin(t * Math.PI * 2);
+      ctx.strokeStyle = 'rgba(232,169,60,0.9)';
+      ctx.lineWidth = 2.5;
+
+      if (focalPoint.symmetry) {
+        // dashed mirror-axis line through the center, full height or width
+        ctx.save();
+        ctx.setLineDash([10 * pulse, 8]);
+        ctx.beginPath();
+        if (focalPoint.axis === 'tb') {
+          ctx.moveTo(0, py); ctx.lineTo(w, py);
+        } else {
+          ctx.moveTo(px, 0); ctx.lineTo(px, h);
+        }
+        ctx.stroke();
+        ctx.restore();
+        // small diamond marker at center
+        ctx.beginPath();
+        ctx.moveTo(px, py - 14 * pulse); ctx.lineTo(px + 14 * pulse, py);
+        ctx.lineTo(px, py + 14 * pulse); ctx.lineTo(px - 14 * pulse, py);
+        ctx.closePath();
+        ctx.stroke();
+      } else {
+        ctx.beginPath();
+        ctx.arc(px, py, 26 * pulse, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(px - 10, py); ctx.lineTo(px + 10, py);
+        ctx.moveTo(px, py - 10); ctx.lineTo(px, py + 10);
+        ctx.stroke();
+      }
+    }
+  }
+
+  // ---- Lightweight scene analysis: find the thirds-intersection with most visual detail ----
+  const sampleCanvas = document.createElement('canvas');
+  sampleCanvas.width = 48; sampleCanvas.height = 27;
+  const sctx = sampleCanvas.getContext('2d', { willReadFrequently: true });
+
+  function analyzeFrame() {
+    if (!video.videoWidth) return;
+    sctx.drawImage(video, 0, 0, sampleCanvas.width, sampleCanvas.height);
+    let data;
+    try {
+      data = sctx.getImageData(0, 0, sampleCanvas.width, sampleCanvas.height).data;
+    } catch (e) { return; }
+
+    const cols = sampleCanvas.width, rows = sampleCanvas.height;
+    // luminance grid
+    const lum = new Float32Array(cols * rows);
+    for (let i = 0; i < cols * rows; i++) {
+      const r = data[i * 4], g = data[i * 4 + 1], b = data[i * 4 + 2];
+      lum[i] = 0.299 * r + 0.587 * g + 0.114 * b;
+    }
+
+    // --- Symmetry check: compare mirrored halves for near-identical luminance ---
+    // Lower diff = more symmetric. Checked both left-right and top-bottom.
+    function symmetryDiff(mirrorAxis) {
+      let diffSum = 0, n = 0;
+      for (let y = 0; y < rows; y++) {
+        for (let x = 0; x < cols; x++) {
+          const mx = mirrorAxis === 'lr' ? (cols - 1 - x) : x;
+          const my = mirrorAxis === 'lr' ? y : (rows - 1 - y);
+          diffSum += Math.abs(lum[y * cols + x] - lum[my * cols + mx]);
+          n++;
+        }
+      }
+      return diffSum / n; // 0-255 scale, lower = more symmetric
+    }
+    const lrDiff = symmetryDiff('lr');
+    const tbDiff = symmetryDiff('tb');
+    const bestSymAxis = lrDiff <= tbDiff ? 'lr' : 'tb';
+    const bestSymScore = Math.min(lrDiff, tbDiff);
+    const SYMMETRY_THRESHOLD = 18; // lower = stricter match; tune by testing
+
+    if (bestSymScore < SYMMETRY_THRESHOLD) {
+      focalPoint = { x: 0.5, y: 0.5, symmetry: true, axis: bestSymAxis };
+      hintTextEl.textContent = bestSymAxis === 'lr'
+        ? 'Symmetrical scene — try centering it left-to-right'
+        : 'Symmetrical scene — try centering it top-to-bottom';
+      if (showHints) hintTextEl.classList.add('show');
+      lastAnalysis = Date.now();
+      return;
+    }
+
+    // 3x3 regions, score by local contrast (std dev of luminance)
+    const regions = [];
+    const rw = Math.floor(cols / 3), rh = Math.floor(rows / 3);
+    for (let ry = 0; ry < 3; ry++) {
+      for (let rx = 0; rx < 3; rx++) {
+        let sum = 0, sumSq = 0, n = 0;
+        for (let y = ry * rh; y < (ry + 1) * rh; y++) {
+          for (let x = rx * rw; x < (rx + 1) * rw; x++) {
+            const v = lum[y * cols + x];
+            sum += v; sumSq += v * v; n++;
+          }
+        }
+        const mean = sum / n;
+        const variance = sumSq / n - mean * mean;
+        regions.push({ rx, ry, contrast: Math.sqrt(Math.max(variance, 0)) });
+      }
+    }
+
+    // pick the off-center region (skip dead-center) with highest contrast -> most "interesting"
+    const candidates = regions.filter(r => !(r.rx === 1 && r.ry === 1));
+    candidates.sort((a, b) => b.contrast - a.contrast);
+    const best = candidates[0];
+    if (!best || best.contrast < 8) { focalPoint = null; hintTextEl.classList.remove('show'); return; }
+
+    // map to nearest thirds intersection (x: 1/3 or 2/3, y: 1/3 or 2/3)
+    const fx = best.rx === 0 ? 1/3 : best.rx === 2 ? 2/3 : (best.rx + 0.5) / 3;
+    const fy = best.ry === 0 ? 1/3 : best.ry === 2 ? 2/3 : (best.ry + 0.5) / 3;
+    focalPoint = { x: fx, y: fy };
+
+    // simple text hint based on region position
+    const horiz = best.rx === 0 ? 'left' : best.rx === 2 ? 'right' : 'center';
+    const vert = best.ry === 0 ? 'upper' : best.ry === 2 ? 'lower' : 'middle';
+    hintTextEl.textContent = `Try placing your subject at the ${vert} ${horiz} intersection`;
+    if (showHints) hintTextEl.classList.add('show');
+    lastAnalysis = Date.now();
+  }
+
+  // ---- Capture ----
+  shutter.addEventListener('click', () => {
+    const cap = document.createElement('canvas');
+    cap.width = video.videoWidth; cap.height = video.videoHeight;
+    const cctx = cap.getContext('2d');
+    cctx.drawImage(video, 0, 0, cap.width, cap.height);
+    const url = cap.toDataURL('image/jpeg', 0.92);
+    previewImg.src = url;
+    saveBtn.href = url;
+    preview.style.display = 'flex';
+  });
+
+  retakeBtn.addEventListener('click', () => {
+    preview.style.display = 'none';
+  });
+})();
+</script>
+</body>
+</html>
