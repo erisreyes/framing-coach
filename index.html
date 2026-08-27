@@ -272,13 +272,34 @@
       const pulse = 1 + 0.15 * Math.sin(t * Math.PI * 2);
       ctx.strokeStyle = 'rgba(232,169,60,0.9)';
       ctx.lineWidth = 2.5;
-      ctx.beginPath();
-      ctx.arc(px, py, 26 * pulse, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(px - 10, py); ctx.lineTo(px + 10, py);
-      ctx.moveTo(px, py - 10); ctx.lineTo(px, py + 10);
-      ctx.stroke();
+
+      if (focalPoint.symmetry) {
+        // dashed mirror-axis line through the center, full height or width
+        ctx.save();
+        ctx.setLineDash([10 * pulse, 8]);
+        ctx.beginPath();
+        if (focalPoint.axis === 'tb') {
+          ctx.moveTo(0, py); ctx.lineTo(w, py);
+        } else {
+          ctx.moveTo(px, 0); ctx.lineTo(px, h);
+        }
+        ctx.stroke();
+        ctx.restore();
+        // small diamond marker at center
+        ctx.beginPath();
+        ctx.moveTo(px, py - 14 * pulse); ctx.lineTo(px + 14 * pulse, py);
+        ctx.lineTo(px, py + 14 * pulse); ctx.lineTo(px - 14 * pulse, py);
+        ctx.closePath();
+        ctx.stroke();
+      } else {
+        ctx.beginPath();
+        ctx.arc(px, py, 26 * pulse, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(px - 10, py); ctx.lineTo(px + 10, py);
+        ctx.moveTo(px, py - 10); ctx.lineTo(px, py + 10);
+        ctx.stroke();
+      }
     }
   }
 
@@ -301,6 +322,36 @@
     for (let i = 0; i < cols * rows; i++) {
       const r = data[i * 4], g = data[i * 4 + 1], b = data[i * 4 + 2];
       lum[i] = 0.299 * r + 0.587 * g + 0.114 * b;
+    }
+
+    // --- Symmetry check: compare mirrored halves for near-identical luminance ---
+    // Lower diff = more symmetric. Checked both left-right and top-bottom.
+    function symmetryDiff(mirrorAxis) {
+      let diffSum = 0, n = 0;
+      for (let y = 0; y < rows; y++) {
+        for (let x = 0; x < cols; x++) {
+          const mx = mirrorAxis === 'lr' ? (cols - 1 - x) : x;
+          const my = mirrorAxis === 'lr' ? y : (rows - 1 - y);
+          diffSum += Math.abs(lum[y * cols + x] - lum[my * cols + mx]);
+          n++;
+        }
+      }
+      return diffSum / n; // 0-255 scale, lower = more symmetric
+    }
+    const lrDiff = symmetryDiff('lr');
+    const tbDiff = symmetryDiff('tb');
+    const bestSymAxis = lrDiff <= tbDiff ? 'lr' : 'tb';
+    const bestSymScore = Math.min(lrDiff, tbDiff);
+    const SYMMETRY_THRESHOLD = 18; // lower = stricter match; tune by testing
+
+    if (bestSymScore < SYMMETRY_THRESHOLD) {
+      focalPoint = { x: 0.5, y: 0.5, symmetry: true, axis: bestSymAxis };
+      hintTextEl.textContent = bestSymAxis === 'lr'
+        ? 'Symmetrical scene — try centering it left-to-right'
+        : 'Symmetrical scene — try centering it top-to-bottom';
+      if (showHints) hintTextEl.classList.add('show');
+      lastAnalysis = Date.now();
+      return;
     }
 
     // 3x3 regions, score by local contrast (std dev of luminance)
